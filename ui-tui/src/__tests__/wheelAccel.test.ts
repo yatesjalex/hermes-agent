@@ -197,9 +197,8 @@ describe('precisionWheelStep — modifier-held precision', () => {
       commits += precisionWheelStep(s, 1, t)
     }
 
-    // 1 leading + 49*0.25 = 13.25 → 13 follow-up commits = 14 total ish.
-    expect(commits).toBeGreaterThanOrEqual(12)
-    expect(commits).toBeLessThanOrEqual(15)
+    // 1 leading + floor(49*0.25) follow-up commits.
+    expect(commits).toBe(13)
   })
 
   it('direction flip commits immediately and resets carry', () => {

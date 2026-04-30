@@ -91,7 +91,7 @@ export function initWheelAccelForHost(): WheelAccelState {
 //     accumulate `burstRate` fractional rows per event. When the carry
 //     crosses 1.0, commit a row and subtract. Default 0.25 means a
 //     5-event burst commits 2 rows (1 leading + 1 fractional), while a
-//     50-event trackpad flick commits ~14 rows.
+//     50-event trackpad flick commits 13 rows.
 //
 // Direction flip resets the carry so reversing is always instant.
 const PRECISION_BURST_GAP_MS = 25
