@@ -294,13 +294,13 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
-      // Modifier-held wheel = precision mode: real-wheel detents commit
-      // 1:1 (so spin speed = line speed), hi-res mouse / trackpad bursts
-      // coalesce via a fractional accumulator. SGR/X10 mouse encoding
-      // only carries shift/meta/ctrl bits; Cmd on macOS is intercepted by
-      // the terminal, so we honor Option (meta) on Mac / Alt (meta) on
-      // Win+Linux / Ctrl as a portable fallback. Shift is reserved for
-      // selection extension.
+      // Modifier-held wheel = precision mode. Physical wheel detents
+      // commit 1 row each, while hi-res mouse / trackpad bursts may return
+      // 0 for some raw events while fractional intent accumulates. SGR/X10
+      // mouse encoding only carries shift/meta/ctrl bits; Cmd on macOS is
+      // intercepted by the terminal, so we honor Option (meta) on Mac /
+      // Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift is
+      // reserved for selection extension.
       const isModifier = key.meta || key.ctrl
 
       // Mid-scroll modifier transition: reset the inactive path so it

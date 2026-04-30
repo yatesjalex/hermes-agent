@@ -176,7 +176,7 @@ describe('precisionWheelStep — modifier-held precision', () => {
     expect(commits).toBe(21)
   })
 
-  it('smooth-scroll detent burst (5 events @ 8ms) commits ~1 row', () => {
+  it('smooth-scroll detent burst commits leading edge plus fractional follow-up', () => {
     const s = init(0.25, 25)
     let commits = 0
 

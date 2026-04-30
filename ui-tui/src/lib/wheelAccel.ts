@@ -77,8 +77,8 @@ export function initWheelAccelForHost(): WheelAccelState {
 }
 
 // ── Modifier-held precision step ───────────────────────────────────────
-// "Line-by-line WITH velocity": each physical wheel-click → exactly 1 row,
-// but spin fast → many clicks fast. Two layers:
+// Modifier precision scroll keeps physical wheel detents 1 row each while
+// coalescing high-resolution event bursts. Two layers:
 //
 //  1. Leading-edge per gesture. A gesture starts on a direction flip OR
 //     after a >= PRECISION_BURST_GAP_MS gap. The first event of any
@@ -86,7 +86,7 @@ export function initWheelAccelForHost(): WheelAccelState {
 //     are always gestures, so real-wheel scroll is 1:1 — spin speed maps
 //     directly to line-advance speed.
 //
-//  2. Within a same-direction burst (events with gap < BURST_GAP_MS:
+//  2. Within a same-direction burst (events with gap < state.burstGapMs:
 //     smooth-scroll mouse intra-detent traffic, trackpad fast flick) we
 //     accumulate `burstRate` fractional rows per event. When the carry
 //     crosses 1.0, commit a row and subtract. Default 0.25 → ~1 line per
