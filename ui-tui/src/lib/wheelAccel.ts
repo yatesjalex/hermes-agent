@@ -81,7 +81,7 @@ export function initWheelAccelForHost(): WheelAccelState {
 // coalescing high-resolution event bursts. Two layers:
 //
 //  1. Leading-edge per gesture. A gesture starts on a direction flip OR
-//     after a >= PRECISION_BURST_GAP_MS gap. The first event of any
+//     after a gap >= state.burstGapMs. The first event of any
 //     gesture commits 1 row immediately. Real-wheel detents (~50ms+ apart)
 //     are always gestures, so real-wheel scroll is 1:1 — spin speed maps
 //     directly to line-advance speed.
@@ -89,8 +89,9 @@ export function initWheelAccelForHost(): WheelAccelState {
 //  2. Within a same-direction burst (events with gap < state.burstGapMs:
 //     smooth-scroll mouse intra-detent traffic, trackpad fast flick) we
 //     accumulate `burstRate` fractional rows per event. When the carry
-//     crosses 1.0, commit a row and subtract. Default 0.25 → ~1 line per
-//     5-event smooth-scroll detent, ~12 lines per 50-event trackpad flick.
+//     crosses 1.0, commit a row and subtract. Default 0.25 means a
+//     5-event burst commits 2 rows (1 leading + 1 fractional), while a
+//     50-event trackpad flick commits ~14 rows.
 //
 // Direction flip resets the carry so reversing is always instant.
 const PRECISION_BURST_GAP_MS = 25
