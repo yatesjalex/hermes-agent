@@ -39,6 +39,12 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   // state — real-wheel detents stay 1:1 (velocity-proportional), but
   // hi-res mouse / trackpad bursts coalesce intra-detent noise.
   const wheelPrecisionRef = useRef(initWheelPrecision())
+  // Tracks the modifier flag of the previous wheel event. Crossing the
+  // boundary mid-scroll forces a state reset on both paths so the
+  // newly-active path doesn't restart with stale time/mult/frac (which
+  // otherwise snaps the unmodified path straight into its accel cap when
+  // a held-modifier slow scroll hands off to plain wheel).
+  const lastWheelWasModifierRef = useRef(false)
 
   useEffect(() => () => clearTimeout(scrollIdleTimer.current ?? undefined), [])
 
@@ -288,7 +294,6 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
-
       // Modifier-held wheel = precision mode: real-wheel detents commit
       // 1:1 (so spin speed = line speed), hi-res mouse / trackpad bursts
       // coalesce via a fractional accumulator. SGR/X10 mouse encoding
@@ -296,7 +301,20 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       // the terminal, so we honor Option (meta) on Mac / Alt (meta) on
       // Win+Linux / Ctrl as a portable fallback. Shift is reserved for
       // selection extension.
-      if (key.meta || key.ctrl) {
+      const isModifier = key.meta || key.ctrl
+
+      // Mid-scroll modifier transition: reset the inactive path so it
+      // doesn't snap into accel from a stale mult/frac the first event
+      // after handoff. Natural >500ms idle resets handle the "released
+      // and stopped scrolling" case on their own.
+      if (isModifier !== lastWheelWasModifierRef.current) {
+        wheelAccelRef.current = initWheelAccelForHost()
+        wheelPrecisionRef.current = initWheelPrecision()
+      }
+
+      lastWheelWasModifierRef.current = isModifier
+
+      if (isModifier) {
         const rows = precisionWheelStep(wheelPrecisionRef.current, dir, Date.now())
 
         return rows ? scrollTranscript(dir * rows * wheelStep) : undefined
