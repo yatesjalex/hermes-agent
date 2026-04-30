@@ -21,6 +21,7 @@ import { patchTurnState } from './turnStore.js'
 import { getUiState } from './uiStore.js'
 
 const isCtrl = (key: { ctrl: boolean }, ch: string, target: string) => key.ctrl && ch.toLowerCase() === target
+const MODIFIER_WHEEL_MIN_GAP_MS = 80
 const MODIFIER_WHEEL_STICKY_MS = 80
 
 export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
@@ -37,6 +38,8 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   // rows = wheelStep × accelMult. State mutates in place across renders.
   const wheelAccelRef = useRef(initWheelAccelForHost())
   const lastModifierWheelTimeRef = useRef(0)
+  const lastModifierScrollTimeRef = useRef(0)
+  const lastModifierScrollDirRef = useRef<0 | -1 | 1>(0)
 
   useEffect(() => () => clearTimeout(scrollIdleTimer.current ?? undefined), [])
 
@@ -287,7 +290,9 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
       const now = Date.now()
-      // Modifier-held wheel = precision mode: 1 row per raw wheel event.
+      // Modifier-held wheel = precision mode: at most 1 row per short
+      // interval. Smooth mice / trackpads emit many raw wheel events for one
+      // intended line step, so raw 1:1 still moves too far.
       // SGR/X10 mouse encoding only carries shift/meta/ctrl bits; Cmd on
       // macOS is intercepted by the terminal, so we honor Option (meta) on
       // Mac / Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift
@@ -301,6 +306,13 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
       if (hasModifier || modifierSticky) {
         lastModifierWheelTimeRef.current = now
         wheelAccelRef.current = initWheelAccelForHost()
+
+        if (dir === lastModifierScrollDirRef.current && now - lastModifierScrollTimeRef.current < MODIFIER_WHEEL_MIN_GAP_MS) {
+          return
+        }
+
+        lastModifierScrollTimeRef.current = now
+        lastModifierScrollDirRef.current = dir
 
         return scrollTranscript(dir * wheelStep)
       }
