@@ -11,7 +11,7 @@ import type {
   VoiceRecordResponse
 } from '../gatewayTypes.js'
 import { isAction, isCopyShortcut, isMac, isVoiceToggleKey } from '../lib/platform.js'
-import { computeWheelStep, initWheelAccelForHost, initWheelPrecision, precisionWheelStep } from '../lib/wheelAccel.js'
+import { computeWheelStep, initWheelAccelForHost } from '../lib/wheelAccel.js'
 
 import { getInputSelection } from './inputSelectionStore.js'
 import type { InputHandlerContext, InputHandlerResult } from './interfaces.js'
@@ -21,6 +21,7 @@ import { patchTurnState } from './turnStore.js'
 import { getUiState } from './uiStore.js'
 
 const isCtrl = (key: { ctrl: boolean }, ch: string, target: string) => key.ctrl && ch.toLowerCase() === target
+const MODIFIER_WHEEL_STICKY_MS = 80
 
 export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   const { actions, composer, gateway, terminal, voice, wheelStep } = ctx
@@ -35,16 +36,7 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   // direction flips reset. wheelStep (WHEEL_SCROLL_STEP) is the base; final
   // rows = wheelStep × accelMult. State mutates in place across renders.
   const wheelAccelRef = useRef(initWheelAccelForHost())
-  // Modifier-held wheel uses its own leading-edge + fractional-accumulator
-  // state — real-wheel detents stay 1:1 (velocity-proportional), but
-  // hi-res mouse / trackpad bursts coalesce intra-detent noise.
-  const wheelPrecisionRef = useRef(initWheelPrecision())
-  // Tracks the modifier flag of the previous wheel event. Crossing the
-  // boundary mid-scroll forces a state reset on both paths so the
-  // newly-active path doesn't restart with stale time/mult/frac (which
-  // otherwise snaps the unmodified path straight into its accel cap when
-  // a held-modifier slow scroll hands off to plain wheel).
-  const lastWheelWasModifierRef = useRef(false)
+  const lastModifierWheelTimeRef = useRef(0)
 
   useEffect(() => () => clearTimeout(scrollIdleTimer.current ?? undefined), [])
 
@@ -294,34 +286,27 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
-      // Modifier-held wheel = precision mode. Physical wheel detents
-      // commit 1 row each, while hi-res mouse / trackpad bursts may return
-      // 0 for some raw events while fractional intent accumulates. SGR/X10
-      // mouse encoding only carries shift/meta/ctrl bits; Cmd on macOS is
-      // intercepted by the terminal, so we honor Option (meta) on Mac /
-      // Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift is
-      // reserved for selection extension.
-      const isModifier = key.meta || key.ctrl
+      const now = Date.now()
+      // Modifier-held wheel = precision mode: 1 row per raw wheel event.
+      // SGR/X10 mouse encoding only carries shift/meta/ctrl bits; Cmd on
+      // macOS is intercepted by the terminal, so we honor Option (meta) on
+      // Mac / Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift
+      // is reserved for selection extension.
+      const hasModifier = key.meta || key.ctrl
+      // Keep precision active through the current wheel burst after the
+      // modifier is released. Otherwise a stream of queued/momentum wheel
+      // events can hand off mid-burst into the accelerated path and jump.
+      const modifierSticky = now - lastModifierWheelTimeRef.current < MODIFIER_WHEEL_STICKY_MS
 
-      // Mid-scroll modifier transition: reset the inactive path so it
-      // doesn't snap into accel from a stale mult/frac the first event
-      // after handoff. Natural >500ms idle resets handle the "released
-      // and stopped scrolling" case on their own.
-      if (isModifier !== lastWheelWasModifierRef.current) {
+      if (hasModifier || modifierSticky) {
+        lastModifierWheelTimeRef.current = now
         wheelAccelRef.current = initWheelAccelForHost()
-        wheelPrecisionRef.current = initWheelPrecision()
-      }
 
-      lastWheelWasModifierRef.current = isModifier
-
-      if (isModifier) {
-        const rows = precisionWheelStep(wheelPrecisionRef.current, dir, Date.now())
-
-        return rows ? scrollTranscript(dir * rows * wheelStep) : undefined
+        return scrollTranscript(dir * wheelStep)
       }
 
       // 0 = direction-flip bounce deferred; skip the no-op scroll.
-      const rows = computeWheelStep(wheelAccelRef.current, dir, Date.now())
+      const rows = computeWheelStep(wheelAccelRef.current, dir, now)
 
       return rows ? scrollTranscript(dir * rows * wheelStep) : undefined
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { computeWheelStep, initWheelAccel, precisionWheelStep } from '../lib/wheelAccel.js'
+import { computeWheelStep, initWheelAccel } from '../lib/wheelAccel.js'
 
 describe('wheelAccel — native path', () => {
   it('first click after init returns base', () => {
@@ -134,105 +134,5 @@ describe('wheelAccel — xterm.js path', () => {
       expect(s.frac).toBeGreaterThanOrEqual(0)
       expect(s.frac).toBeLessThan(1)
     }
-  })
-})
-
-describe('precisionWheelStep — modifier-held precision', () => {
-  const init = (burstRate = 0.25, burstGapMs = 25) => ({
-    burstGapMs,
-    burstRate,
-    dir: 0 as -1 | 0 | 1,
-    frac: 0,
-    time: 0
-  })
-
-  it('first event always commits', () => {
-    const s = init()
-
-    expect(precisionWheelStep(s, 1, 1000)).toBe(1)
-  })
-
-  it('real-wheel detents (gap >= burstGapMs) commit 1:1 — velocity-proportional', () => {
-    const s = init(0.25, 25)
-
-    // Real wheel @ ~12 detents/sec (80ms apart) — every detent should commit.
-    let commits = 0
-
-    for (let t = 1000; t <= 2000; t += 80) {
-      commits += precisionWheelStep(s, 1, t)
-    }
-
-    expect(commits).toBe(13)
-  })
-
-  it('fast real-wheel spin (50ms) still commits 1:1', () => {
-    const s = init(0.25, 25)
-    let commits = 0
-
-    for (let t = 1000; t <= 2000; t += 50) {
-      commits += precisionWheelStep(s, 1, t)
-    }
-
-    expect(commits).toBe(21)
-  })
-
-  it('smooth-scroll detent burst commits leading edge plus fractional follow-up', () => {
-    const s = init(0.25, 25)
-    let commits = 0
-
-    // Single detent: first event commits (gap from t=0 huge → leading edge),
-    // 4 follow-ups within 8ms accumulate 4*0.25 = 1.0 → 1 more commit.
-    for (let t = 1000; t < 1040; t += 8) {
-      commits += precisionWheelStep(s, 1, t)
-    }
-
-    expect(commits).toBe(2)
-  })
-
-  it('trackpad flick (50 events @ 8ms) scales with velocity', () => {
-    const s = init(0.25, 25)
-    let commits = 0
-
-    for (let t = 1000; t < 1400; t += 8) {
-      commits += precisionWheelStep(s, 1, t)
-    }
-
-    // 1 leading + floor(49*0.25) follow-up commits.
-    expect(commits).toBe(13)
-  })
-
-  it('direction flip commits immediately and resets carry', () => {
-    const s = init(0.25, 25)
-
-    precisionWheelStep(s, 1, 1000)
-
-    for (let t = 1008; t < 1040; t += 8) {
-      precisionWheelStep(s, 1, t)
-    }
-
-    s.frac = 0.99
-    expect(precisionWheelStep(s, -1, 1042)).toBe(1)
-    expect(s.frac).toBe(0)
-  })
-
-  it('burstRate = 1 disables coalescing (1:1 always)', () => {
-    const s = init(1, 25)
-
-    expect(precisionWheelStep(s, 1, 1000)).toBe(1)
-    expect(precisionWheelStep(s, 1, 1005)).toBe(1)
-    expect(precisionWheelStep(s, 1, 1010)).toBe(1)
-  })
-
-  it('low burstRate slows trackpad flicks proportionally', () => {
-    const s = init(0.1, 25)
-    let commits = 0
-
-    for (let t = 1000; t < 1400; t += 8) {
-      commits += precisionWheelStep(s, 1, t)
-    }
-
-    // 1 leading + 49*0.1 = 5.9 → 5-6 follow-ups.
-    expect(commits).toBeGreaterThanOrEqual(5)
-    expect(commits).toBeLessThanOrEqual(7)
   })
 })
