@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { computeWheelStep, initWheelAccel } from '../lib/wheelAccel.js'
+import { computeWheelStep, initWheelAccel, shouldCommitPrecisionWheel } from '../lib/wheelAccel.js'
 
 describe('wheelAccel — native path', () => {
   it('first click after init returns base', () => {
@@ -134,5 +134,63 @@ describe('wheelAccel — xterm.js path', () => {
       expect(s.frac).toBeGreaterThanOrEqual(0)
       expect(s.frac).toBeLessThan(1)
     }
+  })
+})
+
+describe('shouldCommitPrecisionWheel — modifier throttle', () => {
+  const init = (gapMs = 100) => ({ dir: 0 as -1 | 0 | 1, gapMs, time: 0 })
+
+  it('first event always commits', () => {
+    const s = init()
+
+    expect(shouldCommitPrecisionWheel(s, 1, 1000)).toBe(true)
+  })
+
+  it('drops sub-threshold events', () => {
+    const s = init(100)
+
+    shouldCommitPrecisionWheel(s, 1, 1000)
+
+    expect(shouldCommitPrecisionWheel(s, 1, 1010)).toBe(false)
+    expect(shouldCommitPrecisionWheel(s, 1, 1050)).toBe(false)
+    expect(shouldCommitPrecisionWheel(s, 1, 1099)).toBe(false)
+  })
+
+  it('commits on or after threshold', () => {
+    const s = init(100)
+
+    shouldCommitPrecisionWheel(s, 1, 1000)
+
+    expect(shouldCommitPrecisionWheel(s, 1, 1100)).toBe(true)
+  })
+
+  it('direction flip commits immediately', () => {
+    const s = init(100)
+
+    shouldCommitPrecisionWheel(s, 1, 1000)
+
+    expect(shouldCommitPrecisionWheel(s, -1, 1010)).toBe(true)
+  })
+
+  it('caps trackpad-cadence bursts to ~10 commits/sec at 100ms gap', () => {
+    const s = init(100)
+    let commits = 0
+
+    for (let t = 1000; t < 2000; t += 8) {
+      if (shouldCommitPrecisionWheel(s, 1, t)) {
+        commits++
+      }
+    }
+
+    expect(commits).toBeGreaterThanOrEqual(9)
+    expect(commits).toBeLessThanOrEqual(11)
+  })
+
+  it('gapMs=0 disables the throttle', () => {
+    const s = init(0)
+
+    expect(shouldCommitPrecisionWheel(s, 1, 1000)).toBe(true)
+    expect(shouldCommitPrecisionWheel(s, 1, 1001)).toBe(true)
+    expect(shouldCommitPrecisionWheel(s, 1, 1002)).toBe(true)
   })
 })

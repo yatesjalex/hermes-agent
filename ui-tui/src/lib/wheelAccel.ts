@@ -76,6 +76,49 @@ export function initWheelAccelForHost(): WheelAccelState {
   return initWheelAccel(isXtermJs(), readScrollSpeedBase())
 }
 
+// ── Modifier-held precision throttle ───────────────────────────────────
+// Hi-res mice (Logitech smooth-scroll, MX Master) and trackpads emit 5-15
+// events per "click" of the wheel, so 1 row/event still scrolls 5-15 rows
+// per gesture — not line-by-line. Throttle commits one row per event but
+// drops events that arrive within MODIFIER_WHEEL_GAP_MS of the last commit,
+// snapping to ~10 lines/sec at the cap. Direction flip resets so reversing
+// is instant.
+const MODIFIER_WHEEL_DEFAULT_GAP_MS = 100
+
+export type WheelPrecisionState = {
+  time: number
+  dir: -1 | 0 | 1
+  gapMs: number
+}
+
+/** HERMES_TUI_PRECISION_SCROLL_GAP_MS — minimum ms between modifier-held
+ *  scroll commits. Default 100, clamped [0, 1000]. 0 disables the throttle
+ *  (recovers raw 1 row/event). */
+export function readPrecisionGapMs(): number {
+  const n = parseFloat(process.env.HERMES_TUI_PRECISION_SCROLL_GAP_MS ?? '')
+
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 1000) : MODIFIER_WHEEL_DEFAULT_GAP_MS
+}
+
+export function initWheelPrecision(): WheelPrecisionState {
+  return { dir: 0, gapMs: readPrecisionGapMs(), time: 0 }
+}
+
+/** Returns true when the modifier-held wheel event should commit a scroll;
+ *  false when it should be dropped to satisfy the throttle. Mutates
+ *  `state` on commit. Direction flips always commit so reversing feels
+ *  immediate. */
+export function shouldCommitPrecisionWheel(state: WheelPrecisionState, dir: -1 | 1, now: number): boolean {
+  if (dir !== state.dir || now - state.time >= state.gapMs) {
+    state.time = now
+    state.dir = dir
+
+    return true
+  }
+
+  return false
+}
+
 /** Compute rows for one wheel event, mutating `state`. Returns 0 when a
  *  direction flip is deferred for bounce detection — call sites should
  *  no-op on 0. */
