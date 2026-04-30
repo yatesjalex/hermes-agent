@@ -76,47 +76,87 @@ export function initWheelAccelForHost(): WheelAccelState {
   return initWheelAccel(isXtermJs(), readScrollSpeedBase())
 }
 
-// ── Modifier-held precision throttle ───────────────────────────────────
-// Hi-res mice (Logitech smooth-scroll, MX Master) and trackpads emit 5-15
-// events per "click" of the wheel, so 1 row/event still scrolls 5-15 rows
-// per gesture — not line-by-line. Throttle commits one row per event but
-// drops events that arrive within MODIFIER_WHEEL_GAP_MS of the last commit,
-// snapping to ~10 lines/sec at the cap. Direction flip resets so reversing
-// is instant.
-const MODIFIER_WHEEL_DEFAULT_GAP_MS = 100
+// ── Modifier-held precision step ───────────────────────────────────────
+// "Line-by-line WITH velocity": each physical wheel-click → exactly 1 row,
+// but spin fast → many clicks fast. Two layers:
+//
+//  1. Leading-edge per gesture. A gesture starts on a direction flip OR
+//     after a >= PRECISION_BURST_GAP_MS gap. The first event of any
+//     gesture commits 1 row immediately. Real-wheel detents (~50ms+ apart)
+//     are always gestures, so real-wheel scroll is 1:1 — spin speed maps
+//     directly to line-advance speed.
+//
+//  2. Within a same-direction burst (events with gap < BURST_GAP_MS:
+//     smooth-scroll mouse intra-detent traffic, trackpad fast flick) we
+//     accumulate `burstRate` fractional rows per event. When the carry
+//     crosses 1.0, commit a row and subtract. Default 0.25 → ~1 line per
+//     5-event smooth-scroll detent, ~12 lines per 50-event trackpad flick.
+//
+// Direction flip resets the carry so reversing is always instant.
+const PRECISION_BURST_GAP_MS = 25
+const PRECISION_DEFAULT_BURST_RATE = 0.25
 
 export type WheelPrecisionState = {
   time: number
   dir: -1 | 0 | 1
-  gapMs: number
+  frac: number
+  burstGapMs: number
+  burstRate: number
 }
 
-/** HERMES_TUI_PRECISION_SCROLL_GAP_MS — minimum ms between modifier-held
- *  scroll commits. Default 100, clamped [0, 1000]. 0 disables the throttle
- *  (recovers raw 1 row/event). */
-export function readPrecisionGapMs(): number {
-  const n = parseFloat(process.env.HERMES_TUI_PRECISION_SCROLL_GAP_MS ?? '')
+/** HERMES_TUI_PRECISION_RATE — fractional rows accumulated per event
+ *  inside a same-direction burst. Default 0.25, clamped (0, 1].
+ *  1 = no coalescing (1 row/event = recover the original burst). */
+export function readPrecisionBurstRate(): number {
+  const n = parseFloat(process.env.HERMES_TUI_PRECISION_RATE ?? '')
 
-  return Number.isFinite(n) && n >= 0 ? Math.min(n, 1000) : MODIFIER_WHEEL_DEFAULT_GAP_MS
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : PRECISION_DEFAULT_BURST_RATE
+}
+
+/** HERMES_TUI_PRECISION_BURST_GAP_MS — gap (ms) below which events are
+ *  treated as part of the same gesture. Default 25, clamped [1, 200].
+ *  Real-wheel detents at >= 50ms always cross this. */
+export function readPrecisionBurstGapMs(): number {
+  const n = parseFloat(process.env.HERMES_TUI_PRECISION_BURST_GAP_MS ?? '')
+
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 200) : PRECISION_BURST_GAP_MS
 }
 
 export function initWheelPrecision(): WheelPrecisionState {
-  return { dir: 0, gapMs: readPrecisionGapMs(), time: 0 }
+  return {
+    burstGapMs: readPrecisionBurstGapMs(),
+    burstRate: readPrecisionBurstRate(),
+    dir: 0,
+    frac: 0,
+    time: 0
+  }
 }
 
-/** Returns true when the modifier-held wheel event should commit a scroll;
- *  false when it should be dropped to satisfy the throttle. Mutates
- *  `state` on commit. Direction flips always commit so reversing feels
- *  immediate. */
-export function shouldCommitPrecisionWheel(state: WheelPrecisionState, dir: -1 | 1, now: number): boolean {
-  if (dir !== state.dir || now - state.time >= state.gapMs) {
-    state.time = now
-    state.dir = dir
+/** Compute precision rows (0 or 1) for one wheel event. Mutates state. */
+export function precisionWheelStep(state: WheelPrecisionState, dir: -1 | 1, now: number): 0 | 1 {
+  const gap = now - state.time
+  const sameDir = dir === state.dir
 
-    return true
+  state.time = now
+
+  // New gesture: idle gap or direction flip → commit immediately.
+  if (!sameDir || gap >= state.burstGapMs) {
+    state.dir = dir
+    state.frac = 0
+
+    return 1
   }
 
-  return false
+  // Same-direction burst: accumulate fractional intent.
+  state.frac += state.burstRate
+
+  if (state.frac >= 1) {
+    state.frac -= 1
+
+    return 1
+  }
+
+  return 0
 }
 
 /** Compute rows for one wheel event, mutating `state`. Returns 0 when a

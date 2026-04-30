@@ -11,12 +11,7 @@ import type {
   VoiceRecordResponse
 } from '../gatewayTypes.js'
 import { isAction, isCopyShortcut, isMac, isVoiceToggleKey } from '../lib/platform.js'
-import {
-  computeWheelStep,
-  initWheelAccelForHost,
-  initWheelPrecision,
-  shouldCommitPrecisionWheel
-} from '../lib/wheelAccel.js'
+import { computeWheelStep, initWheelAccelForHost, initWheelPrecision, precisionWheelStep } from '../lib/wheelAccel.js'
 
 import { getInputSelection } from './inputSelectionStore.js'
 import type { InputHandlerContext, InputHandlerResult } from './interfaces.js'
@@ -40,8 +35,9 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
   // direction flips reset. wheelStep (WHEEL_SCROLL_STEP) is the base; final
   // rows = wheelStep × accelMult. State mutates in place across renders.
   const wheelAccelRef = useRef(initWheelAccelForHost())
-  // Modifier-held wheel uses its own throttle state — hi-res mice/trackpads
-  // burst events too fast for 1-row/event to feel line-by-line.
+  // Modifier-held wheel uses its own leading-edge + fractional-accumulator
+  // state — real-wheel detents stay 1:1 (velocity-proportional), but
+  // hi-res mouse / trackpad bursts coalesce intra-detent noise.
   const wheelPrecisionRef = useRef(initWheelPrecision())
 
   useEffect(() => () => clearTimeout(scrollIdleTimer.current ?? undefined), [])
@@ -293,16 +289,17 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
 
-      // Modifier-held wheel = precision mode: 1 row per commit, no accel,
-      // throttled so hi-res mice / trackpads can't burst-scroll past it.
-      // SGR/X10 mouse encoding only carries shift/meta/ctrl bits; Cmd on
-      // macOS is intercepted by the terminal, so we honor Option (meta) on
-      // Mac / Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift
-      // is reserved for selection extension.
+      // Modifier-held wheel = precision mode: real-wheel detents commit
+      // 1:1 (so spin speed = line speed), hi-res mouse / trackpad bursts
+      // coalesce via a fractional accumulator. SGR/X10 mouse encoding
+      // only carries shift/meta/ctrl bits; Cmd on macOS is intercepted by
+      // the terminal, so we honor Option (meta) on Mac / Alt (meta) on
+      // Win+Linux / Ctrl as a portable fallback. Shift is reserved for
+      // selection extension.
       if (key.meta || key.ctrl) {
-        return shouldCommitPrecisionWheel(wheelPrecisionRef.current, dir, Date.now())
-          ? scrollTranscript(dir * wheelStep)
-          : undefined
+        const rows = precisionWheelStep(wheelPrecisionRef.current, dir, Date.now())
+
+        return rows ? scrollTranscript(dir * rows * wheelStep) : undefined
       }
 
       // 0 = direction-flip bounce deferred; skip the no-op scroll.
