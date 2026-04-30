@@ -697,16 +697,18 @@ function parseKeypress(s: string = ''): ParsedKey {
   // never reach here. Mask with 0x43 (bits 6+1+0) to check wheel-flag
   // + direction while ignoring modifier bits (Shift=0x04, Meta=0x08,
   // Ctrl=0x10) — modified wheel events (e.g. Ctrl+scroll, button=80)
-  // should still be recognized as wheelup/wheeldown.
+  // should still be recognized as wheelup/wheeldown. Modifier bits are
+  // forwarded so callers can implement modifier-gated scroll modes
+  // (e.g. Alt+wheel = line-by-line precision, plain wheel = accel).
   if ((match = SGR_MOUSE_RE.exec(s))) {
     const button = parseInt(match[1]!, 10)
 
     if ((button & 0x43) === 0x40) {
-      return createNavKey(s, 'wheelup', false)
+      return createWheelKey(s, 'wheelup', button)
     }
 
     if ((button & 0x43) === 0x41) {
-      return createNavKey(s, 'wheeldown', false)
+      return createWheelKey(s, 'wheeldown', button)
     }
 
     // Shouldn't reach here (parseMouseEvent catches non-wheel) but be safe
@@ -722,11 +724,11 @@ function parseKeypress(s: string = ''): ParsedKey {
     const button = s.charCodeAt(3) - 32
 
     if ((button & 0x43) === 0x40) {
-      return createNavKey(s, 'wheelup', false)
+      return createWheelKey(s, 'wheelup', button)
     }
 
     if ((button & 0x43) === 0x41) {
-      return createNavKey(s, 'wheeldown', false)
+      return createWheelKey(s, 'wheeldown', button)
     }
 
     return createNavKey(s, 'mouse', false)
@@ -826,6 +828,26 @@ function createNavKey(s: string, name: string, ctrl: boolean): ParsedKey {
     ctrl,
     meta: false,
     shift: false,
+    option: false,
+    super: false,
+    fn: false,
+    sequence: s,
+    raw: s,
+    isPasted: false
+  }
+}
+
+// Wheel events with modifier bits decoded from the SGR/X10 button byte.
+// Cmd on macOS is intercepted by most terminal apps (Terminal.app, iTerm2,
+// Ghostty), so the practical "precision modifier" lands on bit 0x08 — Option
+// on macOS, Alt on Linux/Windows, both of which terminals forward.
+function createWheelKey(s: string, name: 'wheelup' | 'wheeldown', button: number): ParsedKey {
+  return {
+    kind: 'key',
+    name,
+    ctrl: !!(button & 0x10),
+    meta: !!(button & 0x08),
+    shift: !!(button & 0x04),
     option: false,
     super: false,
     fn: false,

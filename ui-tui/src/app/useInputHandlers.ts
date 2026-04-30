@@ -284,6 +284,16 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
 
     if (key.wheelUp || key.wheelDown) {
       const dir: -1 | 1 = key.wheelUp ? -1 : 1
+
+      // Modifier-held wheel = precision mode: 1 row per event, no accel.
+      // SGR/X10 mouse encoding only carries shift/meta/ctrl bits; Cmd on
+      // macOS is intercepted by the terminal, so we honor Option (meta) on
+      // Mac / Alt (meta) on Win+Linux / Ctrl as a portable fallback. Shift
+      // is reserved for selection extension.
+      if (key.meta || key.ctrl) {
+        return scrollTranscript(dir * wheelStep)
+      }
+
       // 0 = direction-flip bounce deferred; skip the no-op scroll.
       const rows = computeWheelStep(wheelAccelRef.current, dir, Date.now())
 
